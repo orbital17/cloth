@@ -49,6 +49,25 @@
       }).call(this);
     }
 
+    Cloth.prototype.update = function(time) {
+      var point, row, _i, _len, _ref, _results;
+      _ref = this.state;
+      _results = [];
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        row = _ref[_i];
+        _results.push((function() {
+          var _j, _len1, _results1;
+          _results1 = [];
+          for (_j = 0, _len1 = row.length; _j < _len1; _j++) {
+            point = row[_j];
+            _results1.push(point.coords[0] -= 1);
+          }
+          return _results1;
+        })());
+      }
+      return _results;
+    };
+
     return Cloth;
 
   })();
@@ -83,6 +102,10 @@
           this.geometry.faces.push(face);
           face = new THREE.Face3(i * (this.width + 1) + j, (i + 1) * (this.width + 1) + j + 1, (i + 1) * (this.width + 1) + j, null, null, i >= this.height / 2 ? 0 : 1);
           this.geometry.faces.push(face);
+          face = new THREE.Face3(i * (this.width + 1) + j, (i + 1) * (this.width + 1) + j + 1, i * (this.width + 1) + j + 1, null, null, i >= this.height / 2 ? 0 : 1);
+          this.geometry.faces.push(face);
+          face = new THREE.Face3(i * (this.width + 1) + j, (i + 1) * (this.width + 1) + j, (i + 1) * (this.width + 1) + j + 1, null, null, i >= this.height / 2 ? 0 : 1);
+          this.geometry.faces.push(face);
         }
       }
     };
@@ -91,14 +114,28 @@
       var material, material_blue, material_yellow;
       material_blue = new THREE.MeshBasicMaterial({
         color: 0x0057b8,
-        wireframe: true
+        wireframe: false
       });
       material_yellow = new THREE.MeshBasicMaterial({
         color: 0xffd700,
-        wireframe: true
+        wireframe: false
       });
       material = new THREE.MeshFaceMaterial([material_blue, material_yellow]);
       return new THREE.Mesh(this.geometry, material);
+    };
+
+    UkrainianFlag.prototype.update = function(time) {
+      var i, j, _i, _j, _ref, _ref1;
+      UkrainianFlag.__super__.update.call(this, time);
+      for (i = _i = 0, _ref = this.height; 0 <= _ref ? _i <= _ref : _i >= _ref; i = 0 <= _ref ? ++_i : --_i) {
+        for (j = _j = 0, _ref1 = this.width; 0 <= _ref1 ? _j <= _ref1 : _j >= _ref1; j = 0 <= _ref1 ? ++_j : --_j) {
+          this.geometry.vertices[i * (this.width + 1) + j] = (function(func, args, ctor) {
+            ctor.prototype = func.prototype;
+            var child = new ctor, result = func.apply(child, args);
+            return Object(result) === result ? result : child;
+          })(THREE.Vector3, this.state[i][j].coords, function(){});
+        }
+      }
     };
 
     return UkrainianFlag;
@@ -106,25 +143,27 @@
   })(Cloth);
 
   Runner = (function() {
-    function Runner(mesh) {
+    function Runner(updatable_meshable) {
+      this.updatable_meshable = updatable_meshable;
       this.animate = __bind(this.animate, this);
       this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
       this.camera.position.z = 1000;
       this.scene = new THREE.Scene();
-      this.scene.add(mesh);
+      this.scene.add(this.updatable_meshable.mesh());
       this.renderer = new THREE.CanvasRenderer();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(this.renderer.domElement);
       return;
     }
 
-    Runner.prototype.animate = function() {
+    Runner.prototype.animate = function(time) {
       requestAnimationFrame(this.animate);
+      this.updatable_meshable.update(time);
       this.renderer.render(this.scene, this.camera);
     };
 
     Runner.prototype.run = function() {
-      return this.animate();
+      return requestAnimationFrame(this.animate);
     };
 
     return Runner;
@@ -132,9 +171,7 @@
   })();
 
   $(function() {
-    var flag;
-    flag = new UkrainianFlag();
-    return new Runner(flag.mesh()).run();
+    return new Runner(new UkrainianFlag()).run();
   });
 
 }).call(this);
