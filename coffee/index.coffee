@@ -6,16 +6,56 @@ class Vector3D
     y: -> @coords[1]
     z: -> @coords[2]
 
+    vectorTo: (other_point) ->
+      return new Vector3D((other_point.coords[i] - @coords[i] for i in [0...3])...)
+
+    multByNumber: (number) ->
+      return new Vector3D((i * number for i in @coords)...)
+
+    subtructNumber: (number) ->
+      return @normalize().multByNumber(number).vectorTo(@)
+
+    normalize: ->
+      norm = Math.sqrt(@coords[0] * @coords[0] + @coords[1] * @coords[1] + @coords[2] * @coords[2])
+      return @multByNumber(1.0 / norm)
+
 
 class Cloth
   constructor: (@width, @height, @block_size) ->
     @state = ((new Vector3D(w * @block_size, h * @block_size, 0) for w in [0..@width]) for h in [0..@height])
-
+    @m = 1.0 / (@height * @width)
+    @gravity = new Vector3D(0, -10 * @m, 0)
+    @k = [1.0, 1.0, 1.0]
 
   update: (time) ->
     for row in @state
       for point in row
         point.coords[0] -= 1
+
+  hookeForce: (i, j) ->
+    return
+
+  hookeForce_spring: (i, j, _i, _j) ->
+    if not (0 <= i <= @width and 0 <= j <= @height)
+      return 0
+    sum = (i - _i) * (i - _i) + (j - _j) * (j - _j)
+    k = l = 0
+    switch sum
+      when 1
+        k = @k[0]
+        l = @block_size
+      when 2
+        k = @k[1]
+        l = @block_size * Math.sqrt(2)
+      when 4
+        k = @k[2]
+        l = @block_size * 2
+      else
+        console.log "error"
+        return 0
+    return @state[j][i].vectorTo(@state[_j][_i]).subtructNumber(l).multByNumber(k / l)
+
+
 
 
 class UkrainianFlag extends Cloth
@@ -43,8 +83,8 @@ class UkrainianFlag extends Cloth
     return
 
   mesh: ->
-    material_blue = new THREE.MeshBasicMaterial(color: 0x0057b8, wireframe: false)
-    material_yellow = new THREE.MeshBasicMaterial(color: 0xffd700, wireframe: false)
+    material_blue = new THREE.MeshBasicMaterial(color: 0x0057b8, wireframe: true)
+    material_yellow = new THREE.MeshBasicMaterial(color: 0xffd700, wireframe: true)
     material = new THREE.MeshFaceMaterial([material_blue, material_yellow])
     return new THREE.Mesh(@geometry, material)
 
