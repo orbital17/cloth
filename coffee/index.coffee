@@ -30,11 +30,20 @@ class Vector3D
   toZero: ->
     @coords = [0, 0, 0]
 
+  proectionYZ: ->
+    return new Vector3D(0, @coords[1], @coords[2])
+
+  product: (other) ->
+    return @coords[0] * other.coords[0] + @coords[1] * other.coords[1] + @coords[2] * other.coords[2]
+
 
 constants =
-  m: 0.001
-  gravity_acceleration: new Vector3D(0, -10, 0)
-  k: 7
+  m: 1.0
+  gravity_acceleration: new Vector3D(0, -0.01, 0)
+  k: 7.0
+  sqrt_2: Math.sqrt(2)
+  delta_t: 2.0
+  p: new Vector3D(0.00003, 0, 0)
 
 class Node
   constructor: (x, y, z) ->
@@ -42,21 +51,24 @@ class Node
     @previous = new Vector3D(x, y, z)
     @springs = []
     @current_spring_force = new Vector3D(0, 0, 0)
+    @current_pressure = new Vector3D(0, 0, 0)
     @pinned = false
 
   update: ->
     if !@pinned
       new_point = @point.multByNumber(2).substructVector(@previous).addVector(
-        @current_spring_force.multByNumber(1/constants.m).addVector(constants.gravity_acceleration).multByNumber(0.001)
+        @current_spring_force.addVector(@current_pressure).multByNumber(1/constants.m)
+        .addVector(constants.gravity_acceleration).multByNumber(constants.delta_t)
       )
       @previous = @point
       @point = new_point
     @current_spring_force.toZero()
+    @current_pressure.toZero()
 
 
 
 class Spring
-  constructor: (@first_node, @second_node) ->
+  constructor: (@first_node, @second_node, @len) ->
     @len = @first_node.point.vectorTo(@second_node.point).norm()
     @first_node.springs.push(@)
     @second_node.springs.push(@)
@@ -70,35 +82,62 @@ class Spring
     @second_node.current_spring_force = @second_node.current_spring_force.addVector(force.multByNumber(-1))
 
 
+class WingPart
+  constructor: (@first, @second, @third) ->
+
+  force: ->
+    f = @first.point.vectorTo(@second.point).proectionYZ()
+    s = @first.point.vectorTo(@third.point).proectionYZ()
+    area = 0.5 * Math.sqrt(f.product(f) * s.product(s) - f.product(s) * f.product(s))
+    return constants.p.multByNumber(area)
+
+  update_forces: ->
+    force = @force()
+    @first.current_pressure = @first.current_pressure.addVector(force)
+    @second.current_pressure = @second.current_pressure.addVector(force)
+    @third.current_pressure = @third.current_pressure.addVector(force)
+
+
+
 class Cloth
   constructor: (@width, @height, @block_size) ->
     @state = []
     for h in [0..@height]
       for w in [0..@width]
-        @state.push(new Node(w * @block_size, h * @block_size, 0))
+        @state.push(new Node(w * @block_size, h * @block_size, w * 100.0/ @width))
 
     @springs = []
     for h in [0..@height]
       for w in [0..@width]
         if w < @width
-          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 1]))
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 1], @block_size))
         if h < @height
-          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w]))
-#        if w < @width && h < @height
-#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w + 1]))
-#          @springs.push(new Spring(@state[(h + 1) * (@width + 1) + w], @state[h * (@width + 1) + w + 1]))
-#        if w < @width - 1
-#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 2]))
-#        if h < @height - 1
-#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 2) * (@width + 1) + w]))
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w], @block_size))
+        if w < @width && h < @height
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w + 1], @block_size * constants.sqrt_2))
+          @springs.push(new Spring(@state[(h + 1) * (@width + 1) + w], @state[h * (@width + 1) + w + 1], @block_size * constants.sqrt_2))
+        if w < @width - 1
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 2], @block_size * 2))
+        if h < @height - 1
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 2) * (@width + 1) + w], @block_size * 2))
+
+    @wing_parts = []
+    for h in [0..@height]
+      for w in [0..@width]
+        if w < @width && h < @height
+          @wing_parts.push(new WingPart(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 1], @state[(h + 1) * (@width + 1) + w]))
 
     @state[@height * (@width + 1)].pinned = true
+    @state[0].pinned = true
 #    @state[(@height + 1) * (@width + 1) - 1].pinned = true
 
 
   update: (time) ->
     for spring in @springs
       spring.update_forces()
+
+    for wing_part in @wing_parts
+      wing_part.update_forces()
 
     for node in @state
       node.update()

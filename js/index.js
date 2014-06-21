@@ -1,5 +1,5 @@
 (function() {
-  var Cloth, Node, Runner, Spring, UkrainianFlag, Vector3D, constants,
+  var Cloth, Node, Runner, Spring, UkrainianFlag, Vector3D, WingPart, constants,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
@@ -53,14 +53,25 @@
       return this.coords = [0, 0, 0];
     };
 
+    Vector3D.prototype.proectionYZ = function() {
+      return new Vector3D(0, this.coords[1], this.coords[2]);
+    };
+
+    Vector3D.prototype.product = function(other) {
+      return this.coords[0] * other.coords[0] + this.coords[1] * other.coords[1] + this.coords[2] * other.coords[2];
+    };
+
     return Vector3D;
 
   })();
 
   constants = {
-    m: 0.001,
-    gravity_acceleration: new Vector3D(0, -10, 0),
-    k: 7
+    m: 1.0,
+    gravity_acceleration: new Vector3D(0, -0.01, 0),
+    k: 7.0,
+    sqrt_2: Math.sqrt(2),
+    delta_t: 2.0,
+    p: new Vector3D(0.00003, 0, 0)
   };
 
   Node = (function() {
@@ -69,17 +80,19 @@
       this.previous = new Vector3D(x, y, z);
       this.springs = [];
       this.current_spring_force = new Vector3D(0, 0, 0);
+      this.current_pressure = new Vector3D(0, 0, 0);
       this.pinned = false;
     }
 
     Node.prototype.update = function() {
       var new_point;
       if (!this.pinned) {
-        new_point = this.point.multByNumber(2).substructVector(this.previous).addVector(this.current_spring_force.multByNumber(1 / constants.m).addVector(constants.gravity_acceleration).multByNumber(0.001));
+        new_point = this.point.multByNumber(2).substructVector(this.previous).addVector(this.current_spring_force.addVector(this.current_pressure).multByNumber(1 / constants.m).addVector(constants.gravity_acceleration).multByNumber(constants.delta_t));
         this.previous = this.point;
         this.point = new_point;
       }
-      return this.current_spring_force.toZero();
+      this.current_spring_force.toZero();
+      return this.current_pressure.toZero();
     };
 
     return Node;
@@ -87,9 +100,10 @@
   })();
 
   Spring = (function() {
-    function Spring(first_node, second_node) {
+    function Spring(first_node, second_node, len) {
       this.first_node = first_node;
       this.second_node = second_node;
+      this.len = len;
       this.len = this.first_node.point.vectorTo(this.second_node.point).norm();
       this.first_node.springs.push(this);
       this.second_node.springs.push(this);
@@ -110,43 +124,94 @@
 
   })();
 
+  WingPart = (function() {
+    function WingPart(first, second, third) {
+      this.first = first;
+      this.second = second;
+      this.third = third;
+    }
+
+    WingPart.prototype.force = function() {
+      var area, f, s;
+      f = this.first.point.vectorTo(this.second.point).proectionYZ();
+      s = this.first.point.vectorTo(this.third.point).proectionYZ();
+      area = 0.5 * Math.sqrt(f.product(f) * s.product(s) - f.product(s) * f.product(s));
+      return constants.p.multByNumber(area);
+    };
+
+    WingPart.prototype.update_forces = function() {
+      var force;
+      force = this.force();
+      this.first.current_pressure = this.first.current_pressure.addVector(force);
+      this.second.current_pressure = this.second.current_pressure.addVector(force);
+      return this.third.current_pressure = this.third.current_pressure.addVector(force);
+    };
+
+    return WingPart;
+
+  })();
+
   Cloth = (function() {
     function Cloth(width, height, block_size) {
-      var h, w, _i, _j, _k, _l, _ref, _ref1, _ref2, _ref3;
+      var h, w, _i, _j, _k, _l, _m, _n, _ref, _ref1, _ref2, _ref3, _ref4, _ref5;
       this.width = width;
       this.height = height;
       this.block_size = block_size;
       this.state = [];
       for (h = _i = 0, _ref = this.height; 0 <= _ref ? _i <= _ref : _i >= _ref; h = 0 <= _ref ? ++_i : --_i) {
         for (w = _j = 0, _ref1 = this.width; 0 <= _ref1 ? _j <= _ref1 : _j >= _ref1; w = 0 <= _ref1 ? ++_j : --_j) {
-          this.state.push(new Node(w * this.block_size, h * this.block_size, 0));
+          this.state.push(new Node(w * this.block_size, h * this.block_size, w * 100.0 / this.width));
         }
       }
       this.springs = [];
       for (h = _k = 0, _ref2 = this.height; 0 <= _ref2 ? _k <= _ref2 : _k >= _ref2; h = 0 <= _ref2 ? ++_k : --_k) {
         for (w = _l = 0, _ref3 = this.width; 0 <= _ref3 ? _l <= _ref3 : _l >= _ref3; w = 0 <= _ref3 ? ++_l : --_l) {
           if (w < this.width) {
-            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 1]));
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 1], this.block_size));
           }
           if (h < this.height) {
-            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[(h + 1) * (this.width + 1) + w]));
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[(h + 1) * (this.width + 1) + w], this.block_size));
+          }
+          if (w < this.width && h < this.height) {
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[(h + 1) * (this.width + 1) + w + 1], this.block_size * constants.sqrt_2));
+            this.springs.push(new Spring(this.state[(h + 1) * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 1], this.block_size * constants.sqrt_2));
+          }
+          if (w < this.width - 1) {
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 2], this.block_size * 2));
+          }
+          if (h < this.height - 1) {
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[(h + 2) * (this.width + 1) + w], this.block_size * 2));
+          }
+        }
+      }
+      this.wing_parts = [];
+      for (h = _m = 0, _ref4 = this.height; 0 <= _ref4 ? _m <= _ref4 : _m >= _ref4; h = 0 <= _ref4 ? ++_m : --_m) {
+        for (w = _n = 0, _ref5 = this.width; 0 <= _ref5 ? _n <= _ref5 : _n >= _ref5; w = 0 <= _ref5 ? ++_n : --_n) {
+          if (w < this.width && h < this.height) {
+            this.wing_parts.push(new WingPart(this.state[h * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 1], this.state[(h + 1) * (this.width + 1) + w]));
           }
         }
       }
       this.state[this.height * (this.width + 1)].pinned = true;
+      this.state[0].pinned = true;
     }
 
     Cloth.prototype.update = function(time) {
-      var node, spring, _i, _j, _len, _len1, _ref, _ref1, _results;
+      var node, spring, wing_part, _i, _j, _k, _len, _len1, _len2, _ref, _ref1, _ref2, _results;
       _ref = this.springs;
       for (_i = 0, _len = _ref.length; _i < _len; _i++) {
         spring = _ref[_i];
         spring.update_forces();
       }
-      _ref1 = this.state;
-      _results = [];
+      _ref1 = this.wing_parts;
       for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
-        node = _ref1[_j];
+        wing_part = _ref1[_j];
+        wing_part.update_forces();
+      }
+      _ref2 = this.state;
+      _results = [];
+      for (_k = 0, _len2 = _ref2.length; _k < _len2; _k++) {
+        node = _ref2[_k];
         _results.push(node.update());
       }
       return _results;
