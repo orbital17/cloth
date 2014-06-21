@@ -1,5 +1,5 @@
 (function() {
-  var Cloth, Node, Runner, Spring, UkrainianFlag, Vector3D,
+  var Cloth, Node, Runner, Spring, UkrainianFlag, Vector3D, constants,
     __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
     __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
@@ -21,38 +21,20 @@
       return this.coords[2];
     };
 
-    Vector3D.prototype.vectorTo = function(other_point) {
-      var i;
-      return (function(func, args, ctor) {
-        ctor.prototype = func.prototype;
-        var child = new ctor, result = func.apply(child, args);
-        return Object(result) === result ? result : child;
-      })(Vector3D, (function() {
-        var _i, _results;
-        _results = [];
-        for (i = _i = 0; _i < 3; i = ++_i) {
-          _results.push(other_point.coords[i] - this.coords[i]);
-        }
-        return _results;
-      }).call(this), function(){});
+    Vector3D.prototype.vectorTo = function(other) {
+      return new Vector3D(other.coords[0] - this.coords[0], other.coords[1] - this.coords[1], other.coords[2] - this.coords[2]);
+    };
+
+    Vector3D.prototype.substructVector = function(other) {
+      return new Vector3D(this.coords[0] - other.coords[0], this.coords[1] - other.coords[1], this.coords[2] - other.coords[2]);
+    };
+
+    Vector3D.prototype.addVector = function(other) {
+      return new Vector3D(this.coords[0] + other.coords[0], this.coords[1] + other.coords[1], this.coords[2] + other.coords[2]);
     };
 
     Vector3D.prototype.multByNumber = function(number) {
-      var i;
-      return (function(func, args, ctor) {
-        ctor.prototype = func.prototype;
-        var child = new ctor, result = func.apply(child, args);
-        return Object(result) === result ? result : child;
-      })(Vector3D, (function() {
-        var _i, _len, _ref, _results;
-        _ref = this.coords;
-        _results = [];
-        for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-          i = _ref[_i];
-          _results.push(i * number);
-        }
-        return _results;
-      }).call(this), function(){});
+      return new Vector3D(this.coords[0] * number, this.coords[1] * number, this.coords[2] * number);
     };
 
     Vector3D.prototype.subtructNumber = function(number) {
@@ -67,33 +49,61 @@
       return this.multByNumber(1.0 / this.norm());
     };
 
+    Vector3D.prototype.toZero = function() {
+      return this.coords = [0, 0, 0];
+    };
+
     return Vector3D;
 
   })();
 
+  constants = {
+    m: 0.001,
+    gravity_acceleration: new Vector3D(0, -10, 0),
+    k: 7
+  };
+
   Node = (function() {
     function Node(x, y, z) {
       this.point = new Vector3D(x, y, z);
+      this.previous = new Vector3D(x, y, z);
       this.springs = [];
-      this.m = 1;
+      this.current_spring_force = new Vector3D(0, 0, 0);
+      this.pinned = false;
     }
+
+    Node.prototype.update = function() {
+      var new_point;
+      if (!this.pinned) {
+        new_point = this.point.multByNumber(2).substructVector(this.previous).addVector(this.current_spring_force.multByNumber(1 / constants.m).addVector(constants.gravity_acceleration).multByNumber(0.001));
+        this.previous = this.point;
+        this.point = new_point;
+      }
+      return this.current_spring_force.toZero();
+    };
 
     return Node;
 
   })();
 
   Spring = (function() {
-    function Spring(first_node, second_node, k) {
+    function Spring(first_node, second_node) {
       this.first_node = first_node;
       this.second_node = second_node;
-      this.k = k;
       this.len = this.first_node.point.vectorTo(this.second_node.point).norm();
       this.first_node.springs.push(this);
       this.second_node.springs.push(this);
     }
 
     Spring.prototype.force = function() {
-      return this.first_node.point.vectorTo(this.second_node.point).subtructNumber(this.len).multByNumber(this.k / this.len);
+      return this.first_node.point.vectorTo(this.second_node.point).subtructNumber(this.len).multByNumber(constants.k / this.len);
+    };
+
+    Spring.prototype.update_forces = function() {
+      var force;
+      force = this.force();
+      this.first_node.current_spring_force = this.first_node.current_spring_force.addVector(force);
+      return this.second_node.current_spring_force = this.second_node.current_spring_force.addVector(force.multByNumber(-1));
     };
 
     return Spring;
@@ -102,7 +112,7 @@
 
   Cloth = (function() {
     function Cloth(width, height, block_size) {
-      var h, w, _i, _j, _ref, _ref1;
+      var h, w, _i, _j, _k, _l, _ref, _ref1, _ref2, _ref3;
       this.width = width;
       this.height = height;
       this.block_size = block_size;
@@ -112,16 +122,32 @@
           this.state.push(new Node(w * this.block_size, h * this.block_size, 0));
         }
       }
-      this.gravity = new Vector3D(0, -10 * this.m, 0);
+      this.springs = [];
+      for (h = _k = 0, _ref2 = this.height; 0 <= _ref2 ? _k <= _ref2 : _k >= _ref2; h = 0 <= _ref2 ? ++_k : --_k) {
+        for (w = _l = 0, _ref3 = this.width; 0 <= _ref3 ? _l <= _ref3 : _l >= _ref3; w = 0 <= _ref3 ? ++_l : --_l) {
+          if (w < this.width) {
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[h * (this.width + 1) + w + 1]));
+          }
+          if (h < this.height) {
+            this.springs.push(new Spring(this.state[h * (this.width + 1) + w], this.state[(h + 1) * (this.width + 1) + w]));
+          }
+        }
+      }
+      this.state[this.height * (this.width + 1)].pinned = true;
     }
 
     Cloth.prototype.update = function(time) {
-      var node, _i, _len, _ref, _results;
-      _ref = this.state;
-      _results = [];
+      var node, spring, _i, _j, _len, _len1, _ref, _ref1, _results;
+      _ref = this.springs;
       for (_i = 0, _len = _ref.length; _i < _len; _i++) {
-        node = _ref[_i];
-        _results.push(node.point.coords[0] -= 2);
+        spring = _ref[_i];
+        spring.update_forces();
+      }
+      _ref1 = this.state;
+      _results = [];
+      for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
+        node = _ref1[_j];
+        _results.push(node.update());
       }
       return _results;
     };
@@ -134,7 +160,7 @@
     __extends(UkrainianFlag, _super);
 
     function UkrainianFlag() {
-      UkrainianFlag.__super__.constructor.call(this, 30, 20, 30);
+      UkrainianFlag.__super__.constructor.call(this, 24, 16, 30);
       this.initGeometry();
     }
 

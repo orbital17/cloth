@@ -6,11 +6,17 @@ class Vector3D
   y: -> @coords[1]
   z: -> @coords[2]
 
-  vectorTo: (other_point) ->
-    return new Vector3D((other_point.coords[i] - @coords[i] for i in [0...3])...)
+  vectorTo: (other) ->
+    return new Vector3D(other.coords[0] - @coords[0], other.coords[1] - @coords[1], other.coords[2] - @coords[2])
+
+  substructVector: (other) ->
+    return new Vector3D(@coords[0] - other.coords[0], @coords[1] - other.coords[1], @coords[2] - other.coords[2])
+
+  addVector: (other) ->
+    return new Vector3D(@coords[0] + other.coords[0], @coords[1] + other.coords[1], @coords[2] + other.coords[2])
 
   multByNumber: (number) ->
-    return new Vector3D((i * number for i in @coords)...)
+    return new Vector3D(@coords[0] * number, @coords[1] * number, @coords[2] * number)
 
   subtructNumber: (number) ->
     return @normalize().multByNumber(number).vectorTo(@)
@@ -21,20 +27,48 @@ class Vector3D
   normalize: ->
     return @multByNumber(1.0 / @norm())
 
+  toZero: ->
+    @coords = [0, 0, 0]
+
+
+constants =
+  m: 0.001
+  gravity_acceleration: new Vector3D(0, -10, 0)
+  k: 7
+
 class Node
   constructor: (x, y, z) ->
     @point = new Vector3D(x, y, z)
+    @previous = new Vector3D(x, y, z)
     @springs = []
-    @m = 1
+    @current_spring_force = new Vector3D(0, 0, 0)
+    @pinned = false
+
+  update: ->
+    if !@pinned
+      new_point = @point.multByNumber(2).substructVector(@previous).addVector(
+        @current_spring_force.multByNumber(1/constants.m).addVector(constants.gravity_acceleration).multByNumber(0.001)
+      )
+      @previous = @point
+      @point = new_point
+    @current_spring_force.toZero()
+
+
 
 class Spring
-  constructor: (@first_node, @second_node, @k) ->
+  constructor: (@first_node, @second_node) ->
     @len = @first_node.point.vectorTo(@second_node.point).norm()
     @first_node.springs.push(@)
     @second_node.springs.push(@)
 
   force: ->
-    @first_node.point.vectorTo(@second_node.point).subtructNumber(@len).multByNumber(@k/@len)
+    @first_node.point.vectorTo(@second_node.point).subtructNumber(@len).multByNumber(constants.k/@len)
+
+  update_forces: ->
+    force = @force()
+    @first_node.current_spring_force = @first_node.current_spring_force.addVector(force)
+    @second_node.current_spring_force = @second_node.current_spring_force.addVector(force.multByNumber(-1))
+
 
 class Cloth
   constructor: (@width, @height, @block_size) ->
@@ -43,16 +77,36 @@ class Cloth
       for w in [0..@width]
         @state.push(new Node(w * @block_size, h * @block_size, 0))
 
-    @gravity = new Vector3D(0, -10 * @m, 0)
+    @springs = []
+    for h in [0..@height]
+      for w in [0..@width]
+        if w < @width
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 1]))
+        if h < @height
+          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w]))
+#        if w < @width && h < @height
+#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 1) * (@width + 1) + w + 1]))
+#          @springs.push(new Spring(@state[(h + 1) * (@width + 1) + w], @state[h * (@width + 1) + w + 1]))
+#        if w < @width - 1
+#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 2]))
+#        if h < @height - 1
+#          @springs.push(new Spring(@state[h * (@width + 1) + w], @state[(h + 2) * (@width + 1) + w]))
+
+    @state[@height * (@width + 1)].pinned = true
+#    @state[(@height + 1) * (@width + 1) - 1].pinned = true
+
 
   update: (time) ->
+    for spring in @springs
+      spring.update_forces()
+
     for node in @state
-      node.point.coords[0] -= 2
+      node.update()
 
 
 class UkrainianFlag extends Cloth
   constructor: () ->
-    super 30, 20, 30
+    super 24, 16, 30
     @initGeometry()
 
   initGeometry: () ->
