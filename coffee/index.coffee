@@ -42,8 +42,9 @@ constants =
   gravity_acceleration: new Vector3D(0, -0.01, 0)
   k: 7.0
   sqrt_2: Math.sqrt(2)
-  delta_t: 2.0
+  delta_t: 1.0
   p: new Vector3D(0.00003, 0, 0)
+  d: 0.0005
 
 class Node
   constructor: (x, y, z) ->
@@ -54,16 +55,60 @@ class Node
     @current_pressure = new Vector3D(0, 0, 0)
     @pinned = false
 
-  update: ->
+    @speed = new Vector3D(0, 0, 0)
+    @saved_point = 0
+    @saved_speed = 0
+
+  get_a: ->
     if !@pinned
+      return (@current_spring_force.addVector(@current_pressure).
+      addVector(@speed.multByNumber(-constants.d)).multByNumber(1/constants.m)
+      .addVector(constants.gravity_acceleration))
+    else
+      return new Vector3D(0, 0, 0)
+
+  currentToZero: ->
+    @current_spring_force.toZero()
+    @current_pressure.toZero()
+
+  runge1: ->
+    @k1 = [@speed, @get_a()]
+    @saved_point = @point
+    @saved_speed = @speed
+    @point = @saved_point.addVector(@k1[0].multByNumber(constants.delta_t / 2.0))
+    @speed = @saved_speed.addVector(@k1[1].multByNumber(constants.delta_t / 2.0))
+    @currentToZero()
+
+  runge2: ->
+    @k2 = [@speed, @get_a()]
+    @point = @saved_point.addVector(@k2[0].multByNumber(constants.delta_t / 2.0))
+    @speed = @saved_speed.addVector(@k2[1].multByNumber(constants.delta_t / 2.0))
+    @currentToZero()
+
+  runge3: ->
+    @k3 = [@speed, @get_a()]
+    @point = @saved_point.addVector(@k3[0].multByNumber(constants.delta_t))
+    @speed = @saved_speed.addVector(@k3[1].multByNumber(constants.delta_t))
+    @currentToZero()
+
+  runge4: ->
+    @k4 = [@speed, @get_a()]
+    @point = @k1[0].addVector(@k2[0].multByNumber(2)).addVector(@k3[0].multByNumber(2))
+    .addVector(@k4[0]).multByNumber(constants.delta_t / 6.0).addVector(@saved_point)
+    @speed = @k1[1].addVector(@k2[1].multByNumber(2)).addVector(@k3[1].multByNumber(2))
+    .addVector(@k4[1]).multByNumber(constants.delta_t / 6.0).addVector(@saved_speed)
+    @currentToZero()
+
+  verlet: ->
+    if !@pinned
+      @speed = @point.substructVector(@previous)
       new_point = @point.multByNumber(2).substructVector(@previous).addVector(
-        @current_spring_force.addVector(@current_pressure).multByNumber(1/constants.m)
-        .addVector(constants.gravity_acceleration).multByNumber(constants.delta_t)
+        @get_a().multByNumber(constants.delta_t * constants.delta_t)
       )
       @previous = @point
       @point = new_point
-    @current_spring_force.toZero()
-    @current_pressure.toZero()
+
+    @currentToZero()
 
 
 
@@ -127,20 +172,45 @@ class Cloth
         if w < @width && h < @height
           @wing_parts.push(new WingPart(@state[h * (@width + 1) + w], @state[h * (@width + 1) + w + 1], @state[(h + 1) * (@width + 1) + w]))
 
-    @state[@height * (@width + 1)].pinned = true
-    @state[0].pinned = true
+    for i in [0..@height]
+      @state[i * (@width + 1)].pinned = true
 #    @state[(@height + 1) * (@width + 1) - 1].pinned = true
 
-
-  update: (time) ->
+  update_forces: ->
     for spring in @springs
       spring.update_forces()
 
     for wing_part in @wing_parts
       wing_part.update_forces()
 
+
+  verlet: (time) ->
+    @update_forces()
     for node in @state
-      node.update()
+      node.verlet()
+
+  runge: ->
+    @update_forces()
+    for node in @state
+      node.runge1()
+    @update_forces()
+    for node in @state
+      node.runge2()
+    @update_forces()
+    for node in @state
+      node.runge3()
+    @update_forces()
+    for node in @state
+      node.runge4()
+
+
+  update: ->
+    @verlet()
+    @verlet()
+    @verlet()
+    @verlet()
+    @verlet()
+    @verlet()
 
 
 class UkrainianFlag extends Cloth
@@ -167,8 +237,8 @@ class UkrainianFlag extends Cloth
     return
 
   mesh: ->
-    material_blue = new THREE.MeshBasicMaterial(color: 0x0057b8, wireframe: true)
-    material_yellow = new THREE.MeshBasicMaterial(color: 0xffd700, wireframe: true)
+    material_blue = new THREE.MeshBasicMaterial(color: 0x0057b8, wireframe: false)
+    material_yellow = new THREE.MeshBasicMaterial(color: 0xffd700, wireframe: false)
     material = new THREE.MeshFaceMaterial([material_blue, material_yellow])
     return new THREE.Mesh(@geometry, material)
 
@@ -183,7 +253,9 @@ class UkrainianFlag extends Cloth
 class Runner
   constructor: (@updatable_meshable) ->
     @camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000)
-    @camera.position.z = 1000
+    @camera.position.z = 500
+    @camera.position.x = 400
+    @camera.position.y = 200
     @scene = new THREE.Scene()
     @scene.add @updatable_meshable.mesh()
     @renderer = new THREE.CanvasRenderer()

@@ -70,8 +70,9 @@
     gravity_acceleration: new Vector3D(0, -0.01, 0),
     k: 7.0,
     sqrt_2: Math.sqrt(2),
-    delta_t: 2.0,
-    p: new Vector3D(0.00003, 0, 0)
+    delta_t: 1.0,
+    p: new Vector3D(0.00003, 0, 0),
+    d: 0.0005
   };
 
   Node = (function() {
@@ -82,17 +83,63 @@
       this.current_spring_force = new Vector3D(0, 0, 0);
       this.current_pressure = new Vector3D(0, 0, 0);
       this.pinned = false;
+      this.speed = new Vector3D(0, 0, 0);
+      this.saved_point = 0;
+      this.saved_speed = 0;
     }
 
-    Node.prototype.update = function() {
+    Node.prototype.get_a = function() {
+      if (!this.pinned) {
+        return this.current_spring_force.addVector(this.current_pressure).addVector(this.speed.multByNumber(-constants.d)).multByNumber(1 / constants.m).addVector(constants.gravity_acceleration);
+      } else {
+        return new Vector3D(0, 0, 0);
+      }
+    };
+
+    Node.prototype.currentToZero = function() {
+      this.current_spring_force.toZero();
+      return this.current_pressure.toZero();
+    };
+
+    Node.prototype.runge1 = function() {
+      this.k1 = [this.speed, this.get_a()];
+      this.saved_point = this.point;
+      this.saved_speed = this.speed;
+      this.point = this.saved_point.addVector(this.k1[0].multByNumber(constants.delta_t / 2.0));
+      this.speed = this.saved_speed.addVector(this.k1[1].multByNumber(constants.delta_t / 2.0));
+      return this.currentToZero();
+    };
+
+    Node.prototype.runge2 = function() {
+      this.k2 = [this.speed, this.get_a()];
+      this.point = this.saved_point.addVector(this.k2[0].multByNumber(constants.delta_t / 2.0));
+      this.speed = this.saved_speed.addVector(this.k2[1].multByNumber(constants.delta_t / 2.0));
+      return this.currentToZero();
+    };
+
+    Node.prototype.runge3 = function() {
+      this.k3 = [this.speed, this.get_a()];
+      this.point = this.saved_point.addVector(this.k3[0].multByNumber(constants.delta_t));
+      this.speed = this.saved_speed.addVector(this.k3[1].multByNumber(constants.delta_t));
+      return this.currentToZero();
+    };
+
+    Node.prototype.runge4 = function() {
+      this.k4 = [this.speed, this.get_a()];
+      this.point = this.k1[0].addVector(this.k2[0].multByNumber(2)).addVector(this.k3[0].multByNumber(2)).addVector(this.k4[0]).multByNumber(constants.delta_t / 6.0).addVector(this.saved_point);
+      this.speed = this.k1[1].addVector(this.k2[1].multByNumber(2)).addVector(this.k3[1].multByNumber(2)).addVector(this.k4[1]).multByNumber(constants.delta_t / 6.0).addVector(this.saved_speed);
+      return this.currentToZero();
+    };
+
+    Node.prototype.verlet = function() {
       var new_point;
       if (!this.pinned) {
-        new_point = this.point.multByNumber(2).substructVector(this.previous).addVector(this.current_spring_force.addVector(this.current_pressure).multByNumber(1 / constants.m).addVector(constants.gravity_acceleration).multByNumber(constants.delta_t));
+        this.speed = this.point.substructVector(this.previous);
+        new_point = this.point.multByNumber(2).substructVector(this.previous).addVector(this.get_a().multByNumber(constants.delta_t * constants.delta_t));
         this.previous = this.point;
         this.point = new_point;
       }
-      this.current_spring_force.toZero();
-      return this.current_pressure.toZero();
+      return this.currentToZero();
     };
 
     return Node;
@@ -153,7 +200,7 @@
 
   Cloth = (function() {
     function Cloth(width, height, block_size) {
-      var h, w, _i, _j, _k, _l, _m, _n, _ref, _ref1, _ref2, _ref3, _ref4, _ref5;
+      var h, i, w, _i, _j, _k, _l, _m, _n, _o, _ref, _ref1, _ref2, _ref3, _ref4, _ref5, _ref6;
       this.width = width;
       this.height = height;
       this.block_size = block_size;
@@ -192,29 +239,76 @@
           }
         }
       }
-      this.state[this.height * (this.width + 1)].pinned = true;
-      this.state[0].pinned = true;
+      for (i = _o = 0, _ref6 = this.height; 0 <= _ref6 ? _o <= _ref6 : _o >= _ref6; i = 0 <= _ref6 ? ++_o : --_o) {
+        this.state[i * (this.width + 1)].pinned = true;
+      }
     }
 
-    Cloth.prototype.update = function(time) {
-      var node, spring, wing_part, _i, _j, _k, _len, _len1, _len2, _ref, _ref1, _ref2, _results;
+    Cloth.prototype.update_forces = function() {
+      var spring, wing_part, _i, _j, _len, _len1, _ref, _ref1, _results;
       _ref = this.springs;
       for (_i = 0, _len = _ref.length; _i < _len; _i++) {
         spring = _ref[_i];
         spring.update_forces();
       }
       _ref1 = this.wing_parts;
+      _results = [];
       for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
         wing_part = _ref1[_j];
-        wing_part.update_forces();
-      }
-      _ref2 = this.state;
-      _results = [];
-      for (_k = 0, _len2 = _ref2.length; _k < _len2; _k++) {
-        node = _ref2[_k];
-        _results.push(node.update());
+        _results.push(wing_part.update_forces());
       }
       return _results;
+    };
+
+    Cloth.prototype.verlet = function(time) {
+      var node, _i, _len, _ref, _results;
+      this.update_forces();
+      _ref = this.state;
+      _results = [];
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        node = _ref[_i];
+        _results.push(node.verlet());
+      }
+      return _results;
+    };
+
+    Cloth.prototype.runge = function() {
+      var node, _i, _j, _k, _l, _len, _len1, _len2, _len3, _ref, _ref1, _ref2, _ref3, _results;
+      this.update_forces();
+      _ref = this.state;
+      for (_i = 0, _len = _ref.length; _i < _len; _i++) {
+        node = _ref[_i];
+        node.runge1();
+      }
+      this.update_forces();
+      _ref1 = this.state;
+      for (_j = 0, _len1 = _ref1.length; _j < _len1; _j++) {
+        node = _ref1[_j];
+        node.runge2();
+      }
+      this.update_forces();
+      _ref2 = this.state;
+      for (_k = 0, _len2 = _ref2.length; _k < _len2; _k++) {
+        node = _ref2[_k];
+        node.runge3();
+      }
+      this.update_forces();
+      _ref3 = this.state;
+      _results = [];
+      for (_l = 0, _len3 = _ref3.length; _l < _len3; _l++) {
+        node = _ref3[_l];
+        _results.push(node.runge4());
+      }
+      return _results;
+    };
+
+    Cloth.prototype.update = function() {
+      this.verlet();
+      this.verlet();
+      this.verlet();
+      this.verlet();
+      this.verlet();
+      return this.verlet();
     };
 
     return Cloth;
@@ -260,11 +354,11 @@
       var material, material_blue, material_yellow;
       material_blue = new THREE.MeshBasicMaterial({
         color: 0x0057b8,
-        wireframe: true
+        wireframe: false
       });
       material_yellow = new THREE.MeshBasicMaterial({
         color: 0xffd700,
-        wireframe: true
+        wireframe: false
       });
       material = new THREE.MeshFaceMaterial([material_blue, material_yellow]);
       return new THREE.Mesh(this.geometry, material);
@@ -291,7 +385,9 @@
       this.updatable_meshable = updatable_meshable;
       this.animate = __bind(this.animate, this);
       this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
-      this.camera.position.z = 1000;
+      this.camera.position.z = 500;
+      this.camera.position.x = 400;
+      this.camera.position.y = 200;
       this.scene = new THREE.Scene();
       this.scene.add(this.updatable_meshable.mesh());
       this.renderer = new THREE.CanvasRenderer();

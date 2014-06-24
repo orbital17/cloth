@@ -7,5 +7,15 @@
     "grunt-contrib-connect": "^0.7.1",
     "grunt-contrib-coffee": "^0.10.1",
     "grunt-browser-sync": "^0.7.4"
-  }
+  },
+  "main": "Gruntfile.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git@bitbucket.org:otkachenko/cloth-simulation.git"
+  },
+  "author": "",
+  "license": "ISC"
 }
