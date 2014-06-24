@@ -42,8 +42,8 @@ constants =
   gravity_acceleration: new Vector3D(0, -0.01, 0)
   k: 7.0
   sqrt_2: Math.sqrt(2)
-  delta_t: 1.0
-  p: new Vector3D(0.00003, 0, 0)
+  delta_t: 1.2
+  p: new Vector3D(0.00004, 0, 0)
   d: 0.0005
 
 class Node
@@ -212,7 +212,6 @@ class Cloth
     @verlet()
     @verlet()
 
-
 class UkrainianFlag extends Cloth
   constructor: () ->
     super 24, 16, 30
@@ -257,10 +256,25 @@ class Runner
     @camera.position.x = 400
     @camera.position.y = 200
     @scene = new THREE.Scene()
-    @scene.add @updatable_meshable.mesh()
+    @mesh = @updatable_meshable.mesh()
+    @scene.add @mesh
     @renderer = new THREE.CanvasRenderer()
     @renderer.setSize window.innerWidth, window.innerHeight
     document.body.appendChild @renderer.domElement
+    t = @
+    $(@renderer.domElement).mousedown(
+      (e)->
+        t.mousedown(e)
+    )
+    $(@renderer.domElement).mouseup(
+      (e)->
+        t.mouseup(e)
+    )
+#    $(@renderer.domElement).mousemove(
+#      (e)->
+#        t.mousemove(e)
+#    )
+    @projector = new THREE.Projector()
     return
 
   animate: (time) =>
@@ -272,6 +286,31 @@ class Runner
   run: () ->
     requestAnimationFrame @animate
 
+  mousedown: (event) ->
+    vector = new THREE.Vector3( ( event.clientX / window.innerWidth ) * 2 - 1, - ( event.clientY / window.innerHeight ) * 2 + 1, 0.5 );
+    @projector.unprojectVector( vector, @camera );
+    raycaster = new THREE.Raycaster();
+    raycaster.set( @camera.position, vector.sub( @camera.position ).normalize() );
+
+    intersects = raycaster.intersectObjects( [@mesh] );
+
+    if intersects.length > 0
+      @selected = true
+      @point_index = intersects[0].face.a
+      @point_onclick = [event.clientX, event.clientY]
+      @updatable_meshable.state[@point_index].pinned = true
+
+  mouseup: (event) ->
+    if @selected
+      @selected = false
+      @updatable_meshable.state[@point_index].pinned = false
+
+  mousemove: (event) ->
+    if @selected
+      offset = [event.clientX - @point_onclick[0], event.clientY - @point_onclick[1]]
+      point = @updatable_meshable.state[@point_index]
+      point.point.coords[0] += offset[0]
+      point.point.coords[1] -= offset[1]
 
 $ ->
   new Runner(new UkrainianFlag()).run()

@@ -70,8 +70,8 @@
     gravity_acceleration: new Vector3D(0, -0.01, 0),
     k: 7.0,
     sqrt_2: Math.sqrt(2),
-    delta_t: 1.0,
-    p: new Vector3D(0.00003, 0, 0),
+    delta_t: 1.2,
+    p: new Vector3D(0.00004, 0, 0),
     d: 0.0005
   };
 
@@ -382,6 +382,7 @@
 
   Runner = (function() {
     function Runner(updatable_meshable) {
+      var t;
       this.updatable_meshable = updatable_meshable;
       this.animate = __bind(this.animate, this);
       this.camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 1, 10000);
@@ -389,10 +390,19 @@
       this.camera.position.x = 400;
       this.camera.position.y = 200;
       this.scene = new THREE.Scene();
-      this.scene.add(this.updatable_meshable.mesh());
+      this.mesh = this.updatable_meshable.mesh();
+      this.scene.add(this.mesh);
       this.renderer = new THREE.CanvasRenderer();
       this.renderer.setSize(window.innerWidth, window.innerHeight);
       document.body.appendChild(this.renderer.domElement);
+      t = this;
+      $(this.renderer.domElement).mousedown(function(e) {
+        return t.mousedown(e);
+      });
+      $(this.renderer.domElement).mouseup(function(e) {
+        return t.mouseup(e);
+      });
+      this.projector = new THREE.Projector();
       return;
     }
 
@@ -404,6 +414,38 @@
 
     Runner.prototype.run = function() {
       return requestAnimationFrame(this.animate);
+    };
+
+    Runner.prototype.mousedown = function(event) {
+      var intersects, raycaster, vector;
+      vector = new THREE.Vector3((event.clientX / window.innerWidth) * 2 - 1, -(event.clientY / window.innerHeight) * 2 + 1, 0.5);
+      this.projector.unprojectVector(vector, this.camera);
+      raycaster = new THREE.Raycaster();
+      raycaster.set(this.camera.position, vector.sub(this.camera.position).normalize());
+      intersects = raycaster.intersectObjects([this.mesh]);
+      if (intersects.length > 0) {
+        this.selected = true;
+        this.point_index = intersects[0].face.a;
+        this.point_onclick = [event.clientX, event.clientY];
+        return this.updatable_meshable.state[this.point_index].pinned = true;
+      }
+    };
+
+    Runner.prototype.mouseup = function(event) {
+      if (this.selected) {
+        this.selected = false;
+        return this.updatable_meshable.state[this.point_index].pinned = false;
+      }
+    };
+
+    Runner.prototype.mousemove = function(event) {
+      var offset, point;
+      if (this.selected) {
+        offset = [event.clientX - this.point_onclick[0], event.clientY - this.point_onclick[1]];
+        point = this.updatable_meshable.state[this.point_index];
+        point.point.coords[0] += offset[0];
+        return point.point.coords[1] -= offset[1];
+      }
     };
 
     return Runner;
